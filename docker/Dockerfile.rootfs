@@ -1,0 +1,114 @@
+# syntax=docker/dockerfile:1.6
+# SPDX-License-Identifier: MIT
+# OpenTina Debian lite rootfs, cross-arch build via BuildKit/QEMU.
+# Builds the same package set as mk-lite-rootfs.sh, but as a Dockerfile so
+# that `docker buildx build --platform linux/arm64 -o type=tar` can produce
+# a rootfs tar without debootstrap, host binfmt registration, or a privileged
+# container.
+
+ARG SUITE=trixie
+FROM debian:${SUITE}-slim
+
+ARG SUITE=trixie
+ARG DEBIAN_MIRROR=http://deb.debian.org/debian
+ARG DEBIAN_SECURITY_MIRROR=http://security.debian.org/debian-security
+ARG ROOT_PASSWORD=root
+ARG EXTRA_DEBS=""
+ARG SERIAL_TTY=ttyS0
+ARG HOSTNAME=debian-lite
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 1. APT sources, full-upgrade, lite packages.
+RUN set -eux; \
+    # trixie-slim ships /etc/apt/sources.list.d/debian.sources (deb822); remove
+    # it so our /etc/apt/sources.list is the only source list and apt-get
+    # doesn't complain "Target Packages ... is configured multiple times".
+    rm -f /etc/apt/sources.list.d/debian.sources; \
+    case "${SUITE}" in \
+    bookworm) \
+        printf '%s\n' \
+            "deb ${DEBIAN_MIRROR}/ bookworm main contrib non-free non-free-firmware" \
+            "deb ${DEBIAN_MIRROR}/ bookworm-updates main contrib non-free non-free-firmware" \
+            "deb ${DEBIAN_SECURITY_MIRROR}/ bookworm-security main contrib non-free non-free-firmware" \
+            > /etc/apt/sources.list; \
+        ;; \
+    *) \
+        printf '%s\n' \
+            "deb ${DEBIAN_MIRROR}/ trixie main contrib non-free non-free-firmware" \
+            "deb ${DEBIAN_MIRROR}/ trixie-updates main contrib non-free non-free-firmware" \
+            "deb ${DEBIAN_SECURITY_MIRROR}/ trixie-security main contrib non-free non-free-firmware" \
+            > /etc/apt/sources.list; \
+        ;; \
+    esac; \
+    apt-get -y update; \
+    apt-get -y full-upgrade; \
+    apt-get -y install --no-install-recommends \
+        openssh-server sudo locales ca-certificates curl wget \
+        iproute2 iputils-ping ifupdown isc-dhcp-client \
+        vim-tiny less file pciutils usbutils kmod dbus \
+        systemd-sysv systemd-timesyncd ${EXTRA_DEBS}; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
+
+# 2. /sbin/init fallback, locale, root password, hostname, hosts.
+RUN set -eux; \
+    if [ ! -e /sbin/init ] && [ ! -e /usr/sbin/init ]; then \
+        ln -sf /lib/systemd/systemd /usr/sbin/init; \
+    fi; \
+    sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen; \
+    locale-gen; \
+    update-locale LANG=en_US.UTF-8; \
+    echo "root:${ROOT_PASSWORD}" | chpasswd; \
+    echo "${HOSTNAME}" > /etc/hostname
+# Note: /etc/hosts is read-only during buildx (BuildKit mounts it). The 127.0.1.1
+# entry from mk-lite-rootfs.sh is dropped here; systemd-hostnamed / cloud-init
+# populate it at first boot if needed.
+
+# 3. /etc/fstab + systemd manager drop-in (no /boot auto-mount, generous timeout).
+RUN set -eux; \
+    mkdir -p /etc/systemd/system.conf.d; \
+    printf '%s\n%s\n' '[Manager]' 'DefaultTimeoutStartSec=120s' \
+        > /etc/systemd/system.conf.d/opentina.conf; \
+    cat > /etc/fstab <<'FSTAB'
+# <file system> <mount point>   <type>  <options>       <dump>  <pass>
+proc            /proc           proc    defaults          0       0
+sysfs           /sys            sysfs   defaults          0       0
+tmpfs           /tmp            tmpfs   defaults,nodev,nosuid  0  0
+FSTAB
+
+# 4. Default target, mask noisy services, enable sshd.
+RUN set -eux; \
+    systemctl set-default multi-user.target; \
+    systemctl mask rsyslog.service 2>/dev/null || true; \
+    systemctl enable ssh
+
+# 5. Project overlay (opentina-serial-getty@.service, etc).
+COPY overlay/ /
+
+# 6. Swap serial-getty@<tty> -> opentina-serial-getty@<tty> (the overlay unit).
+RUN set -eux; \
+    systemctl disable "serial-getty@${SERIAL_TTY}.service" 2>/dev/null || true; \
+    systemctl enable "opentina-serial-getty@${SERIAL_TTY}.service" 2>/dev/null || true
+
+# 7. OEM injection. Customer assets are staged into .oem-staging/ by the buildx
+#    wrapper (empty = no-op). Unmet deps abort the build; no `apt -f install`.
+COPY .oem-staging/ /oem/
+RUN set -eux; \
+    if ls /oem/packages/*.deb >/dev/null 2>&1; then \
+        apt-get -y update; \
+        apt-get -y install --no-install-recommends /oem/packages/*.deb; \
+        apt-get clean; \
+        rm -rf /var/lib/apt/lists/*; \
+    fi; \
+    if [ -d /oem/rootfs-overlay ]; then \
+        cp -a /oem/rootfs-overlay/. /; \
+    fi; \
+    if [ -x /oem/post.sh ]; then \
+        /oem/post.sh; \
+    fi; \
+    rm -rf /oem
+
+# Marker for downstream "what's this rootfs" queries.
+RUN printf 'OPENTINA_REVISION=Dockerfile.rootfs\nSUITE=%s\n' "${SUITE}" \
+        > /etc/opentina-rootfs-release
