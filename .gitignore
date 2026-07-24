@@ -1,0 +1,6 @@
+.build-work/
+out/
+custom_rootfs_work/
+.oem-staging/
+*.swp
+*.swo

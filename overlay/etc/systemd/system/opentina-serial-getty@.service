@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MIT
+# OpenTina: login on serial without dev-tty*.device (avoids serial-getty@ timeout on sunxi).
+[Unit]
+Description=Serial login on %I
+Documentation=man:agetty(8)
+After=local-fs.target
+DefaultDependencies=no
+
+[Service]
+ExecStart=-/sbin/agetty -o '-p -- \\u' --keep-baud 115200,57600,38400,9600 %I vt102
+Type=simple
+Restart=always
+RestartSec=2
+TTYPath=/dev/%I
+TTYReset=yes
+TTYVHangup=yes
+KillMode=process
+IgnoreSIGPIPE=no
+SendSIGHUP=yes
+
+[Install]
+WantedBy=getty.target
