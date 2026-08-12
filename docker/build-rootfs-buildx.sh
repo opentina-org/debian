@@ -58,9 +58,21 @@ aarch64 | arm64)
     [ "${ARCH}" != "arm64" ] && NEED_HOST_BINFMT=true ;;
 esac
 if [ "${NEED_HOST_BINFMT}" = true ] && [ "${QEMU_BINFMT_SETUP:-1}" = "1" ]; then
-    if ! [ -e "/proc/sys/fs/binfmt_misc/qemu-${QEMU_ARCH}" ]; then
+    # BuildKit needs the F (fix) flag so the interpreter is available inside
+    # containers. Distro qemu-user-static often registers without it; that
+    # yields "exec /bin/sh: no such file or directory" on cross builds.
+    _binfmt_entry="/proc/sys/fs/binfmt_misc/qemu-${QEMU_ARCH}"
+    _binfmt_ok=false
+    if [ -e "${_binfmt_entry}" ] && grep -qx enabled "${_binfmt_entry}" &&
+        grep -q '^flags:.*F' "${_binfmt_entry}"; then
+        _binfmt_ok=true
+    fi
+    if [ "${_binfmt_ok}" != true ]; then
         QEMU_BINFMT_IMAGE="${QEMU_BINFMT_IMAGE:-tonistiigi/binfmt:latest}"
-        echo "==> register qemu binfmt for ${ARCH} via ${QEMU_BINFMT_IMAGE}"
+        echo "==> register qemu binfmt (with F flag) for ${ARCH} via ${QEMU_BINFMT_IMAGE}"
+        if [ -e "${_binfmt_entry}" ]; then
+            docker run --rm --privileged "${QEMU_BINFMT_IMAGE}" --uninstall "qemu-${QEMU_ARCH}" >/dev/null
+        fi
         docker run --rm --privileged "${QEMU_BINFMT_IMAGE}" --install "${ARCH}"
     fi
 fi
