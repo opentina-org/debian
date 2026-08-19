@@ -20,6 +20,9 @@
 #   QEMU_BINFMT_SETUP=0        skip registering qemu binfmt on host
 #   QEMU_BINFMT_IMAGE          default tonistiigi/binfmt:latest
 #   BUILDX_BUILDER             override builder (default: current)
+#   DESKTOP=0|1                 desktop profile adds the HMI stack (default 0)
+#   BASE_FLAVOR=-slim|          base image suffix; desktop defaults to standard
+#   HOSTNAME=<name>             rootfs hostname (default debian-lite)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -81,7 +84,12 @@ TS="$(date +%Y%m%d-%H%M)"
 OUT="${DEBIAN_DIR}/out"
 mkdir -p "${OUT}"
 RAW_TAR="${OUT}/.buildx-${RELEASE}-${ARCH}-${TS}.tar"
-OUT_BASE="debian-${RELEASE}-lite-${ARCH}-${TS}"
+DESKTOP="${DESKTOP:-0}"
+PROFILE_TAG="lite"; [ "${DESKTOP}" = "1" ] && PROFILE_TAG="desktop"
+if [ -z "${BASE_FLAVOR+x}" ]; then
+    BASE_FLAVOR="-slim"; [ "${DESKTOP}" = "1" ] && BASE_FLAVOR=""
+fi
+OUT_BASE="debian-${RELEASE}-${PROFILE_TAG}-${ARCH}-${TS}"
 TAR_GZ="${OUT}/${OUT_BASE}.tar.gz"
 EXT4_IMG="${OUT}/${OUT_BASE}.ext4"
 
@@ -113,8 +121,12 @@ docker buildx build "${BUILDER_ARG[@]}" \
     --build-arg "DEBIAN_MIRROR=${DEBIAN_MIRROR:-http://deb.debian.org/debian}" \
     --build-arg "DEBIAN_SECURITY_MIRROR=${DEBIAN_SECURITY_MIRROR:-http://security.debian.org/debian-security}" \
     --build-arg "ROOT_PASSWORD=${ROOT_PASSWORD:-root}" \
+    --build-arg "HOSTNAME=${HOSTNAME:-debian-lite}" \
     --build-arg "EXTRA_DEBS=${EXTRA_DEBS:-}" \
     --build-arg "SERIAL_TTY=${OPENTINA_SERIAL_TTY:-ttyS0}" \
+    --build-arg "DESKTOP=${DESKTOP}" \
+    --build-arg "BASE_FLAVOR=${BASE_FLAVOR}" \
+    --build-arg "SERIAL_FIX=${SERIAL_FIX:-0}" \
     -o "type=tar,dest=${RAW_TAR}" \
     "${DEBIAN_DIR}"
 
