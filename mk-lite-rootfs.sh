@@ -155,7 +155,7 @@ apt-get -y install --no-install-recommends \
 	openssh-server sudo locales ca-certificates curl wget \
 	iproute2 iputils-ping ifupdown isc-dhcp-client \
 	vim-tiny less file pciutils usbutils kmod dbus \
-	systemd-sysv systemd-timesyncd ${EXTRA_DEBS}
+	systemd-sysv systemd-timesyncd udev ${EXTRA_DEBS}
 
 # debootstrap minbase ships /lib/systemd/systemd but often no /sbin/init; the kernel
 # then falls back to /bin/sh (serial shows "with environment" + job control warning).

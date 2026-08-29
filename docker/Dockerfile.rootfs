@@ -6,15 +6,18 @@
 # container.
 
 ARG SUITE=trixie
-FROM debian:${SUITE}-slim
+FROM debian:${SUITE}${BASE_FLAVOR}
 
 ARG SUITE=trixie
+ARG BASE_FLAVOR=-slim
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://security.debian.org/debian-security
 ARG ROOT_PASSWORD=root
 ARG EXTRA_DEBS=""
 ARG SERIAL_TTY=ttyS0
 ARG HOSTNAME=debian-lite
+ARG DESKTOP=0
+ARG SERIAL_FIX=0
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -46,9 +49,28 @@ RUN set -eux; \
         openssh-server sudo locales ca-certificates curl wget \
         iproute2 iputils-ping ifupdown isc-dhcp-client \
         vim-tiny less file pciutils usbutils kmod dbus \
-        systemd-sysv systemd-timesyncd ${EXTRA_DEBS}; \
+        systemd-sysv systemd-timesyncd udev ${EXTRA_DEBS}; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
+
+# 1b. Optional desktop/HMI stack (DESKTOP=1): software-rendered Wayland/Weston.
+RUN set -eux; \
+    if [ "${DESKTOP}" = "1" ]; then \
+        apt-get -y update; \
+        apt-get -y install --no-install-recommends \
+            weston seatd xwayland \
+            libgl1-mesa-dri mesa-utils \
+            gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-libav \
+            gstreamer1.0-alsa gstreamer1.0-pulseaudio gstreamer1.0-gl \
+            pulseaudio alsa-utils \
+            chromium \
+            fonts-dejavu-core dbus-user-session; \
+        printf '%s\n' 'LIBGL_ALWAYS_SOFTWARE=1' 'GALLIUM_DRIVER=llvmpipe' \
+            >> /etc/environment; \
+        apt-get clean; \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # 2. /sbin/init fallback, locale, root password, hostname, hosts.
 RUN set -eux; \
@@ -85,10 +107,14 @@ RUN set -eux; \
 # 5. Project overlay (opentina-serial-getty@.service, etc).
 COPY overlay/ /
 
-# 6. Swap serial-getty@<tty> -> opentina-serial-getty@<tty> (the overlay unit).
+# 6. Optional serial workaround. Normal profiles use the standard systemd
+# serial-getty now that udev is installed; SERIAL_FIX=1 is retained only for
+# regression testing images that must bypass the tty device unit.
 RUN set -eux; \
-    systemctl disable "serial-getty@${SERIAL_TTY}.service" 2>/dev/null || true; \
-    systemctl enable "opentina-serial-getty@${SERIAL_TTY}.service" 2>/dev/null || true
+    if [ "${SERIAL_FIX}" = "1" ]; then \
+        systemctl mask "serial-getty@${SERIAL_TTY}.service"; \
+        systemctl enable "opentina-serial-getty@${SERIAL_TTY}.service" 2>/dev/null || true; \
+    fi
 
 # 7. OEM injection. Customer assets are staged into .oem-staging/ by the buildx
 #    wrapper (empty = no-op). Unmet deps abort the build; no `apt -f install`.
@@ -109,5 +135,7 @@ RUN set -eux; \
     rm -rf /oem
 
 # Marker for downstream "what's this rootfs" queries.
-RUN printf 'OPENTINA_REVISION=Dockerfile.rootfs\nSUITE=%s\n' "${SUITE}" \
+RUN printf 'OPENTINA_REVISION=Dockerfile.rootfs\nSUITE=%s\nPROFILE=%s\nBASE_FLAVOR=%s\n' \
+        "${SUITE}" "$([ "${DESKTOP}" = "1" ] && echo desktop || echo lite)" \
+        "${BASE_FLAVOR}" \
         > /etc/opentina-rootfs-release
