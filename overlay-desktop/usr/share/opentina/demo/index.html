@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>OpenTina HMI</title>
+<style>
+  html,body{height:100%;margin:0;background:#101010;color:#e8e8e8;
+            font:16px/1.5 sans-serif;display:flex;align-items:center;
+            justify-content:center}
+  div{text-align:center}
+  h1{font-weight:400;font-size:2.2rem;margin:0 0 .5rem}
+  p{margin:.2rem;color:#9a9a9a}
+</style>
+<div>
+  <h1>OpenTina HMI</h1>
+  <p>Allwinner A733 &middot; Wayland / Weston</p>
+  <p id="t"></p>
+</div>
+<script>
+  const t = document.getElementById('t');
+  setInterval(() => { t.textContent = new Date().toLocaleTimeString(); }, 1000);
+</script>
