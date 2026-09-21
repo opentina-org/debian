@@ -1,0 +1,9 @@
+# Environment for the OpenTina HMI services.
+#
+# The imagination Vulkan driver is not Vulkan-conformant yet and refuses to
+# load without this opt-in. Harmless on images without the PowerVR stack.
+PVR_I_WANT_A_BROKEN_VULKAN_DRIVER=1
+
+# Uncomment to force software rendering, e.g. to compare against llvmpipe.
+#LIBGL_ALWAYS_SOFTWARE=1
+#GALLIUM_DRIVER=llvmpipe

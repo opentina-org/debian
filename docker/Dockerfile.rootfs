@@ -107,6 +107,20 @@ RUN set -eux; \
 # 5. Project overlay (opentina-serial-getty@.service, etc).
 COPY overlay/ /
 
+# 5b. HMI overlay. Staged rather than copied straight to / so that a lite image
+#     does not carry compositor units and demo assets it will never start.
+COPY overlay-desktop/ /.opentina-desktop/
+RUN set -eux; \
+    if [ "${DESKTOP}" = "1" ]; then \
+        cp -a /.opentina-desktop/. /; \
+        chmod 0755 /usr/bin/opentina-hmi-check \
+            /usr/share/opentina/demo/gst-scenarios.sh; \
+        systemctl enable seatd.service; \
+        systemctl enable opentina-weston.service; \
+        systemctl enable opentina-kiosk.service; \
+    fi; \
+    rm -rf /.opentina-desktop
+
 # 6. Optional serial workaround. Normal profiles use the standard systemd
 # serial-getty now that udev is installed; SERIAL_FIX=1 is retained only for
 # regression testing images that must bypass the tty device unit.

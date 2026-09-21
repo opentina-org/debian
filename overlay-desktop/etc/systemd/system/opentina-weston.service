@@ -1,0 +1,25 @@
+[Unit]
+Description=OpenTina Weston compositor
+# systemd-tmpfiles creates /tmp/.X11-unix (systemd ships x11.conf). Weston
+# segfaults rather than degrading if xwayland cannot bind there, so make the
+# ordering explicit instead of relying on it falling out of the dependency graph.
+After=systemd-user-sessions.service seatd.service dbus.service systemd-tmpfiles-setup.service
+Wants=seatd.service
+# No DRM device means no display pipeline; do not spin on restart.
+ConditionPathExistsGlob=/dev/dri/card*
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/opentina-hmi
+Environment=WAYLAND_DISPLAY=wayland-1
+Environment=LIBSEAT_BACKEND=seatd
+# Set by the image build when the GPU stack is present; harmless otherwise.
+EnvironmentFile=-/etc/default/opentina-hmi
+RuntimeDirectory=opentina-hmi
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/weston --backend=drm-backend.so --config=/etc/xdg/weston/weston.ini
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
