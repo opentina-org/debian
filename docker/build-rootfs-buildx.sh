@@ -102,6 +102,25 @@ if [ -n "${OPENTINA_OEM_DIR:-}" ]; then
 fi
 trap 'rm -rf "${OEM_STAGE}"' EXIT
 
+# OpenTina custom packages (OPENTINA_CUSTOM_DEBS): .debs built by the
+# build_<repo> components (scripts/custom-pkg.sh) land in
+# output/<BOARD>/custom-debs/. Stage them alongside OEM so the Dockerfile
+# installs both through the same fail-fast path; separate staging so the
+# customer channel stays untouched.
+CUSTOM_STAGE="${DEBIAN_DIR}/.custom-debs"
+rm -rf "${CUSTOM_STAGE}"
+if [ -n "${OPENTINA_CUSTOM_DEBS_DIR:-}" ] && [ -d "${OPENTINA_CUSTOM_DEBS_DIR}" ]; then
+    mkdir -p "${CUSTOM_STAGE}/packages"
+    # -dbgsym is debug symbols; keep it out of the image.
+    find "${OPENTINA_CUSTOM_DEBS_DIR}" -maxdepth 1 -name '*.deb' ! -name '*-dbgsym_*' \
+        -exec cp {} "${CUSTOM_STAGE}/packages/" \;
+    if [ -n "$(ls -A "${CUSTOM_STAGE}/packages" 2>/dev/null)" ]; then
+        echo "==> custom-debs staging: ${OPENTINA_CUSTOM_DEBS_DIR} -> ${CUSTOM_STAGE}"
+        cp -a "${CUSTOM_STAGE}/." "${OEM_STAGE}/"
+    fi
+    rm -rf "${CUSTOM_STAGE}"
+fi
+
 BUILDER_ARG=()
 [ -n "${BUILDX_BUILDER:-}" ] && BUILDER_ARG=(--builder "${BUILDX_BUILDER}")
 
