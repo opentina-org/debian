@@ -1,0 +1,24 @@
+[Unit]
+Description=OpenTina kiosk browser
+After=opentina-weston.service
+Requires=opentina-weston.service
+# Give up instead of restart-looping when the browser cannot start at all.
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/opentina-hmi
+Environment=WAYLAND_DISPLAY=wayland-1
+EnvironmentFile=-/etc/default/opentina-hmi
+# Chromium refuses its sandbox as uid 0, which is the only account on a stock
+# image. Confine the browser instead of loosening this if the image grows a
+# regular user.
+ExecStart=/usr/bin/chromium --kiosk --ozone-platform=wayland --no-sandbox \
+    --disable-dev-shm-usage --enable-features=UseOzonePlatform \
+    file:///usr/share/opentina/demo/index.html
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
