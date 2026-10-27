@@ -33,6 +33,7 @@ RUN set -eux; \
             "deb ${DEBIAN_MIRROR}/ bookworm main contrib non-free non-free-firmware" \
             "deb ${DEBIAN_MIRROR}/ bookworm-updates main contrib non-free non-free-firmware" \
             "deb ${DEBIAN_SECURITY_MIRROR}/ bookworm-security main contrib non-free non-free-firmware" \
+            "deb ${DEBIAN_MIRROR}/ bookworm-backports main contrib non-free non-free-firmware" \
             > /etc/apt/sources.list; \
         ;; \
     *) \
@@ -40,6 +41,7 @@ RUN set -eux; \
             "deb ${DEBIAN_MIRROR}/ trixie main contrib non-free non-free-firmware" \
             "deb ${DEBIAN_MIRROR}/ trixie-updates main contrib non-free non-free-firmware" \
             "deb ${DEBIAN_SECURITY_MIRROR}/ trixie-security main contrib non-free non-free-firmware" \
+            "deb ${DEBIAN_MIRROR}/ trixie-backports main contrib non-free non-free-firmware" \
             > /etc/apt/sources.list; \
         ;; \
     esac; \
@@ -53,21 +55,38 @@ RUN set -eux; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-# 1b. Optional desktop/HMI stack (DESKTOP=1): software-rendered Wayland/Weston.
+# 1b. Optional desktop/HMI stack (DESKTOP=1): Wayland/Weston.
+#
+# On trixie the Mesa stack comes from trixie-backports (26.1), because the
+# A733 PowerVR BXM-4-64 is only known to Mesa >= 25.3 and trixie ships 25.0.
+# bookworm-backports is still on 25.0, so that suite stays software-rendered.
 RUN set -eux; \
     if [ "${DESKTOP}" = "1" ]; then \
         apt-get -y update; \
         apt-get -y install --no-install-recommends \
             weston seatd xwayland \
-            libgl1-mesa-dri mesa-utils \
+            mesa-utils \
             gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-bad gstreamer1.0-libav \
             gstreamer1.0-alsa gstreamer1.0-pulseaudio gstreamer1.0-gl \
             pulseaudio alsa-utils \
             chromium \
             fonts-dejavu-core dbus-user-session; \
-        printf '%s\n' 'LIBGL_ALWAYS_SOFTWARE=1' 'GALLIUM_DRIVER=llvmpipe' \
-            >> /etc/environment; \
+        if [ "${SUITE}" = "trixie" ]; then \
+            apt-get -y install --no-install-recommends -t trixie-backports \
+                libgl1-mesa-dri libegl-mesa0 libglx-mesa0 libgbm1 \
+                mesa-libgallium mesa-vulkan-drivers; \
+            apt-get -y install --no-install-recommends \
+                vulkan-tools glmark2-es2-wayland; \
+            # The imagination Vulkan driver is not conformant yet and refuses
+            # to load without this opt-in. Software rendering stays available
+            # ad hoc via LIBGL_ALWAYS_SOFTWARE=1.
+            printf '%s\n' 'PVR_I_WANT_A_BROKEN_VULKAN_DRIVER=1' >> /etc/environment; \
+        else \
+            apt-get -y install --no-install-recommends libgl1-mesa-dri; \
+            printf '%s\n' 'LIBGL_ALWAYS_SOFTWARE=1' 'GALLIUM_DRIVER=llvmpipe' \
+                >> /etc/environment; \
+        fi; \
         apt-get clean; \
         rm -rf /var/lib/apt/lists/*; \
     fi
