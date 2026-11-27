@@ -60,6 +60,10 @@ RUN set -eux; \
 # On trixie the Mesa stack comes from trixie-backports (26.1), because the
 # A733 PowerVR BXM-4-64 is only known to Mesa >= 25.3 and trixie ships 25.0.
 # bookworm-backports is still on 25.0, so that suite stays software-rendered.
+# On arm64, Chromium comes from the OpenTina release .deb so EGL OpenGL ES
+# 3.0 -> 2.0 context fallback stays enabled on Mesa Zink (GLES 2.0).
+ARG CHROMIUM_DEB_URL="https://github.com/opentina-org/chromium/releases/download/v156.0.8078.79-1%2Bopentina1/chromium_156.0.8078.79-1+opentina1_arm64.deb"
+ARG CHROMIUM_DEB_SHA256="78e833c1312f62f7997a27ea28d4b13329270992c7953a8fcd52a9997633e454"
 RUN set -eux; \
     if [ "${DESKTOP}" = "1" ]; then \
         apt-get -y update; \
@@ -70,7 +74,6 @@ RUN set -eux; \
             gstreamer1.0-plugins-bad gstreamer1.0-libav \
             gstreamer1.0-alsa gstreamer1.0-pulseaudio gstreamer1.0-gl \
             pulseaudio alsa-utils \
-            chromium \
             fonts-dejavu-core dbus-user-session; \
         if [ "${SUITE}" = "trixie" ]; then \
             apt-get -y install --no-install-recommends -t trixie-backports \
@@ -87,6 +90,40 @@ RUN set -eux; \
             printf '%s\n' 'LIBGL_ALWAYS_SOFTWARE=1' 'GALLIUM_DRIVER=llvmpipe' \
                 >> /etc/environment; \
         fi; \
+        if [ "$(dpkg --print-architecture)" = "arm64" ] && [ -n "${CHROMIUM_DEB_URL}" ]; then \
+            case "${#CHROMIUM_DEB_SHA256}:${CHROMIUM_DEB_SHA256}" in \
+                64:*[!0-9a-fA-F]*) \
+                    echo "CHROMIUM_DEB_SHA256 must be a 64-character hex SHA-256 digest" >&2; \
+                    exit 1 ;; \
+                64:*) ;; \
+                *) \
+                    echo "CHROMIUM_DEB_SHA256 must be a 64-character hex SHA-256 digest" >&2; \
+                    exit 1 ;; \
+            esac; \
+            curl -fL --retry 3 --retry-delay 2 -o /tmp/opentina-chromium.deb "${CHROMIUM_DEB_URL}"; \
+            printf '%s  /tmp/opentina-chromium.deb\n' "${CHROMIUM_DEB_SHA256}" | sha256sum --strict -c -; \
+            mkdir -p /etc/apt/preferences.d; \
+            printf '%s\n' \
+                '# Prefer OpenTina GLES2-patched builds; keep unpatched distro builds' \
+                '# below installed priority (100) so apt upgrade preserves GLES2 fallback.' \
+                'Package: chromium' \
+                'Pin: version *+opentina*' \
+                'Pin-Priority: 990' \
+                '' \
+                'Package: chromium chromium-common chromium-sandbox chromium-l10n' \
+                'Pin: release *' \
+                'Pin-Priority: 50' \
+                '' \
+                'Package: chromium-browser' \
+                'Pin: release *' \
+                'Pin-Priority: -1' \
+                > /etc/apt/preferences.d/opentina-chromium; \
+            apt-get -y install --no-install-recommends /tmp/opentina-chromium.deb; \
+            rm -f /tmp/opentina-chromium.deb; \
+        else \
+            apt-get -y install --no-install-recommends chromium; \
+        fi; \
+        test -x /usr/bin/chromium; \
         apt-get clean; \
         rm -rf /var/lib/apt/lists/*; \
     fi
