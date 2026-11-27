@@ -23,6 +23,8 @@
 #   DESKTOP=0|1                 desktop profile adds the HMI stack (default 0)
 #   BASE_FLAVOR=-slim|          base image suffix; desktop defaults to standard
 #   HOSTNAME=<name>             rootfs hostname (default debian-lite)
+#   OPENTINA_CHROMIUM_DEB_URL   override arm64 OpenTina Chromium .deb URL ("" uses apt)
+#   OPENTINA_CHROMIUM_DEB_SHA256 SHA-256 required when OPENTINA_CHROMIUM_DEB_URL is non-empty
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -124,6 +126,36 @@ fi
 BUILDER_ARG=()
 [ -n "${BUILDX_BUILDER:-}" ] && BUILDER_ARG=(--builder "${BUILDX_BUILDER}")
 
+CHROMIUM_ARGS=()
+if [ "${DESKTOP}" = "1" ] && [ "${ARCH}" = "arm64" ]; then
+    if [ -n "${OPENTINA_CHROMIUM_DEB_URL+x}" ]; then
+        if [ -n "${OPENTINA_CHROMIUM_DEB_URL}" ]; then
+            _chromium_sha="${OPENTINA_CHROMIUM_DEB_SHA256:-}"
+            case "${#_chromium_sha}:${_chromium_sha}" in
+                64:*[!0-9a-fA-F]*)
+                    echo "OPENTINA_CHROMIUM_DEB_SHA256 (64-char hex SHA-256) is required when OPENTINA_CHROMIUM_DEB_URL is set" >&2
+                    exit 1 ;;
+                64:*) ;;
+                *)
+                    echo "OPENTINA_CHROMIUM_DEB_SHA256 (64-char hex SHA-256) is required when OPENTINA_CHROMIUM_DEB_URL is set" >&2
+                    exit 1 ;;
+            esac
+            CHROMIUM_ARGS=(
+                --build-arg "CHROMIUM_DEB_URL=${OPENTINA_CHROMIUM_DEB_URL}"
+                --build-arg "CHROMIUM_DEB_SHA256=${OPENTINA_CHROMIUM_DEB_SHA256}"
+            )
+        else
+            CHROMIUM_ARGS=(
+                --build-arg "CHROMIUM_DEB_URL="
+                --build-arg "CHROMIUM_DEB_SHA256="
+            )
+        fi
+    elif [ -n "${OPENTINA_CHROMIUM_DEB_SHA256+x}" ]; then
+        echo "OPENTINA_CHROMIUM_DEB_URL is required when OPENTINA_CHROMIUM_DEB_SHA256 is set" >&2
+        exit 1
+    fi
+fi
+
 echo "==> buildx build --platform=${PLATFORM} -f docker/Dockerfile.rootfs (SUITE=${RELEASE})"
 docker buildx build "${BUILDER_ARG[@]}" \
     --platform "${PLATFORM}" \
@@ -139,6 +171,7 @@ docker buildx build "${BUILDER_ARG[@]}" \
     --build-arg "DESKTOP=${DESKTOP}" \
     --build-arg "BASE_FLAVOR=${BASE_FLAVOR}" \
     --build-arg "SERIAL_FIX=${SERIAL_FIX:-0}" \
+    "${CHROMIUM_ARGS[@]}" \
     -o "type=tar,dest=${RAW_TAR}" \
     "${DEBIAN_DIR}"
 
